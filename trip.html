@@ -6,7 +6,7 @@
 <title>旅途小面板</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
 <style>
-/* Layout: one compact card for a Notion embed. Row 1: place + time + countdown. Row 2: current weather. Row 3: seven-day strip. Settings fold away behind one button. */
+/* Layout: one compact card for a Notion embed. Row 1: place + time + countdown. Row 2: today's weather. Row 3: seven-day strip. Settings fold away behind one button. */
 :root {
   --bg: #EDF0F4; --surface: #FFFFFF; --fg: #111A2B; --muted: #5B6578; --line: #D5DBE4;
   --accent: #2455D6; --accent-fg: #FFFFFF; --rain: #2563EB; --warn: #C2410C;
@@ -31,7 +31,7 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
 }
 .card { max-width: 520px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; }
-button { font-family: var(--font-ui); }
+button, select, input { font-family: var(--font-ui); }
 .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .place { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
 .place small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
@@ -57,21 +57,22 @@ button { font-family: var(--font-ui); }
 .sd .p { font: 500 11px var(--font-num); color: var(--rain); }
 .sd .p.z { color: var(--muted); }
 .foot { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.msg { font-size: 12px; color: var(--muted); }
+.msg { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .msg.err { color: var(--warn); }
-.set { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
-.set[hidden] { display: none; }
+.set { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.set[hidden], .res[hidden] { display: none; }
+.set [data-hide] { display: none !important; }
 .set label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
-.set input { width: 100%; min-width: 0; font: 400 14px var(--font-ui); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.set input, .set select { width: 100%; min-width: 0; font: 400 14px var(--font-ui); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
 .set .r { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .go { display: flex; gap: 8px; }
 .go input { flex: 1; }
 .btn { font: 700 13px var(--font-ui); border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); }
 .res { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
-.res[hidden] { display: none; }
 .res button { width: 100%; text-align: left; border: 0; background: var(--bg); color: var(--fg); font: 400 13px var(--font-ui); padding: 8px 10px; border-radius: 7px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
 .res small { color: var(--muted); }
-input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hint { font-size: 11px; color: var(--muted); }
+input:focus-visible, button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 </head>
 <body>
@@ -98,47 +99,122 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); ou
   <div class="strip" id="strip"></div>
   <div class="msg" id="msg" role="status"></div>
 
-  <form class="set" id="set" hidden autocomplete="off">
-    <div class="go">
-      <input type="text" id="q" aria-label="搜尋地區" placeholder="搜尋地區，例如 仙台、Tokyo">
+  <div class="set" id="set" hidden>
+    <label>地區類型
+      <select id="src">
+        <option value="jma">日本（日本氣象廳）</option>
+        <option value="tw">台灣（Open-Meteo）</option>
+        <option value="om">其他地區搜尋（Open-Meteo）</option>
+      </select>
+    </label>
+    <label id="areaw">地區<select id="area"></select></label>
+    <form class="go" id="sf" autocomplete="off" data-hide>
+      <input type="text" id="q" aria-label="搜尋地區" placeholder="搜尋地區，例如 Seoul、Paris">
       <button class="btn" type="submit">搜尋</button>
-    </div>
+    </form>
     <ul class="res" id="res" hidden></ul>
     <div class="r">
       <label>倒數標題<input type="text" id="ct-title" maxlength="20" placeholder="例如：出發"></label>
       <label>倒數日期<input type="date" id="ct-date"></label>
     </div>
-  </form>
+    <div class="hint">日本使用日本氣象廳；氣象廳資料取得失敗時，會自動改用 Open-Meteo 並在上方說明原因。</div>
+  </div>
 
-  <div class="foot"><span id="stamp"></span><span>天氣：Open-Meteo</span></div>
+  <div class="foot"><span id="stamp"></span><span id="srcl"></span></div>
 </main>
 
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var KEY = "trip-panel-v1";
+  var KEY = "trip-panel-v2";
   var store = {
     get: function () { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } },
     set: function (o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
   };
   var S = store.get(), Q = new URLSearchParams(location.search);
-  var DEF = { lat: 38.2682, lon: 140.8694, name: "仙台", sub: "宮城縣，日本" };
   var WEEK = ["日", "一", "二", "三", "四", "五", "六"];
-  var WMO = {0:["晴朗","☀️"],1:["大致晴朗","🌤️"],2:["多雲時晴","⛅"],3:["陰天","☁️"],45:["霧","🌫️"],48:["霧凇","🌫️"],
+
+  /* ---------- 地區表 ---------- */
+  // [氣象廳區域代碼, 名稱, 代表城市, 緯度, 經度]
+  var JP = [
+    ["011000","宗谷","稚內",45.41,141.67],["012000","上川・留萌","旭川",43.77,142.36],["013000","網走・北見・紋別","網走",44.02,144.27],
+    ["014100","釧路・根室・十勝","釧路",42.98,144.38],["015000","胆振・日高","室蘭",42.32,140.97],["016000","石狩・空知・後志","札幌",43.06,141.35],
+    ["017000","渡島・檜山","函館",41.77,140.73],["020000","青森","青森",40.82,140.74],["030000","岩手","盛岡",39.70,141.15],
+    ["040000","宮城","仙台",38.27,140.87],["050000","秋田","秋田",39.72,140.10],["060000","山形","山形",38.24,140.36],
+    ["070000","福島","福島",37.75,140.47],["080000","茨城","水戶",36.34,140.45],["090000","栃木","宇都宮",36.57,139.88],
+    ["100000","群馬","前橋",36.39,139.06],["110000","埼玉","埼玉",35.86,139.65],["120000","千葉","千葉",35.61,140.12],
+    ["130000","東京","東京",35.69,139.69],["140000","神奈川","橫濱",35.45,139.64],["150000","新潟","新潟",37.90,139.02],
+    ["160000","富山","富山",36.70,137.21],["170000","石川","金澤",36.59,136.63],["180000","福井","福井",36.07,136.22],
+    ["190000","山梨","甲府",35.66,138.57],["200000","長野","長野",36.65,138.18],["210000","岐阜","岐阜",35.39,136.72],
+    ["220000","靜岡","靜岡",34.98,138.38],["230000","愛知","名古屋",35.18,136.91],["240000","三重","津",34.73,136.51],
+    ["250000","滋賀","大津",35.00,135.87],["260000","京都","京都",35.02,135.76],["270000","大阪","大阪",34.69,135.52],
+    ["280000","兵庫","神戶",34.69,135.18],["290000","奈良","奈良",34.69,135.83],["300000","和歌山","和歌山",34.23,135.17],
+    ["310000","鳥取","鳥取",35.50,134.24],["320000","島根","松江",35.47,133.05],["330000","岡山","岡山",34.66,133.93],
+    ["340000","廣島","廣島",34.40,132.46],["350000","山口","山口",34.19,131.47],["360000","德島","德島",34.07,134.56],
+    ["370000","香川","高松",34.34,134.05],["380000","愛媛","松山",33.84,132.77],["390000","高知","高知",33.56,133.53],
+    ["400000","福岡","福岡",33.61,130.42],["410000","佐賀","佐賀",33.25,130.30],["420000","長崎","長崎",32.74,129.87],
+    ["430000","熊本","熊本",32.79,130.74],["440000","大分","大分",33.24,131.61],["450000","宮崎","宮崎",31.91,131.42],
+    ["460100","鹿兒島","鹿兒島",31.56,130.56],["471000","沖繩本島","那霸",26.21,127.68],["472000","大東島","南大東",25.85,131.23],
+    ["473000","宮古島","宮古島",24.80,125.28],["474000","八重山","石垣",24.34,124.16]
+  ];
+  // [縣市名稱, 緯度, 經度]
+  var TW = [
+    ["臺北市",25.04,121.56],["新北市",25.01,121.46],["桃園市",24.99,121.30],["臺中市",24.15,120.67],["臺南市",22.99,120.21],
+    ["高雄市",22.63,120.30],["基隆市",25.13,121.74],["新竹縣",24.84,121.01],["新竹市",24.81,120.97],["苗栗縣",24.56,120.82],
+    ["彰化縣",24.07,120.54],["南投縣",23.91,120.69],["雲林縣",23.71,120.43],["嘉義縣",23.46,120.25],["嘉義市",23.48,120.45],
+    ["屏東縣",22.67,120.49],["宜蘭縣",24.75,121.75],["花蓮縣",23.99,121.60],["臺東縣",22.76,121.14],["澎湖縣",23.57,119.57],
+    ["金門縣",24.43,118.32],["連江縣",26.16,119.95]
+  ];
+  function jpSel(code) {
+    for (var i = 0; i < JP.length; i++) if (JP[i][0] === code) {
+      var r = JP[i];
+      return { src: "jma", key: r[0], name: r[1], sub: "代表城市：" + r[2], lat: r[3], lon: r[4], tz: "Asia/Tokyo" };
+    }
+    return null;
+  }
+  function twSel(name) {
+    name = (name || "").replace(/台/g, "臺");
+    for (var i = 0; i < TW.length; i++) if (TW[i][0] === name) {
+      return { src: "tw", key: name, name: name, sub: "台灣・Open-Meteo", lat: TW[i][1], lon: TW[i][2], tz: "Asia/Taipei" };
+    }
+    return null;
+  }
+  var DEF = jpSel("040000");
+
+  /* ---------- 天氣代碼 → 文字與圖示 ---------- */
+  var OM = {0:["晴朗","☀️"],1:["大致晴朗","🌤️"],2:["多雲時晴","⛅"],3:["陰天","☁️"],45:["霧","🌫️"],48:["霧凇","🌫️"],
     51:["毛毛雨","🌦️"],53:["毛毛雨","🌦️"],55:["強毛毛雨","🌦️"],56:["凍毛毛雨","🌧️"],57:["凍毛毛雨","🌧️"],
     61:["小雨","🌧️"],63:["中雨","🌧️"],65:["大雨","🌧️"],66:["凍雨","🌧️"],67:["凍雨","🌧️"],
     71:["小雪","🌨️"],73:["中雪","🌨️"],75:["大雪","❄️"],77:["雪粒","🌨️"],80:["陣雨","🌦️"],81:["陣雨","🌧️"],82:["強陣雨","⛈️"],
     85:["陣雪","🌨️"],86:["強陣雪","❄️"],95:["雷雨","⛈️"],96:["雷雨冰雹","⛈️"],99:["雷雨冰雹","⛈️"]};
-  var wmo = function (c) { return WMO[c] || ["未知", "❔"]; };
-  var num = function (v) { return v == null || isNaN(v) ? "--" : String(Math.round(v)); };
+  function omWx(c) { return OM[c] || ["未知", "❔"]; }
 
-  var place = null, tz = null, reqId = 0, lastSec = -1;
+  var JW = {100:["晴","☀️"],101:["晴時多雲","🌤️"],102:["晴一時雨","🌦️"],103:["晴時雨","🌦️"],104:["晴一時雪","🌨️"],105:["晴時雪","🌨️"],
+    110:["晴後多雲","🌤️"],111:["晴後陰","⛅"],112:["晴後一時雨","🌦️"],113:["晴後時雨","🌦️"],114:["晴後雨","🌧️"],115:["晴後一時雪","🌨️"],
+    116:["晴後時雪","🌨️"],117:["晴後雪","🌨️"],200:["陰","☁️"],201:["陰時晴","⛅"],202:["陰一時雨","🌦️"],203:["陰時雨","🌦️"],
+    204:["陰一時雪","🌨️"],205:["陰時雪","🌨️"],206:["陰一時雨或雪","🌨️"],207:["陰時雨或雪","🌨️"],209:["霧","🌫️"],
+    210:["陰後時晴","⛅"],211:["陰後晴","🌤️"],212:["陰後一時雨","🌦️"],213:["陰後時雨","🌦️"],214:["陰後雨","🌧️"],
+    215:["陰後一時雪","🌨️"],216:["陰後時雪","🌨️"],217:["陰後雪","🌨️"],218:["陰後雨或雪","🌨️"],
+    300:["雨","🌧️"],301:["雨時晴","🌦️"],302:["雨時停","🌧️"],303:["雨時雪","🌨️"],304:["雨或雪","🌨️"],306:["大雨","🌧️"],
+    308:["暴風雨","🌧️"],309:["雨一時雪","🌨️"],311:["雨後晴","🌦️"],313:["雨後陰","🌧️"],314:["雨後時雪","🌨️"],315:["雨後雪","🌨️"],
+    400:["雪","❄️"],401:["雪時晴","🌨️"],402:["雪時停","🌨️"],403:["雪時雨","🌨️"],405:["大雪","❄️"],406:["暴風雪","❄️"],
+    407:["暴風雪","❄️"],409:["雪一時雨","🌨️"],411:["雪後晴","🌨️"],413:["雪後陰","🌨️"],414:["雪後雨","🌨️"]};
+  var JBASE = { 1: ["晴", "☀️"], 2: ["陰", "☁️"], 3: ["雨", "🌧️"], 4: ["雪", "❄️"] };
+  function jmaWx(code) {
+    var c = parseInt(code, 10);
+    if (isNaN(c)) return ["--", "❔"];
+    return JW[c] || JBASE[Math.floor(c / 100)] || ["未知", "❔"];
+  }
+  var num = function (v) { return v == null || isNaN(v) ? "--" : String(Math.round(v)); };
+  var toNum = function (v) { if (v === "" || v == null || v === "-") return null; var n = +v; return isNaN(n) ? null : n; };
+  function todayIn(tz) { return new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date()); }
+  function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = "msg" + (err ? " err" : ""); }
+
+  var sel = null, tz = null, reqId = 0, lastSec = -1;
   var title = Q.get("title") != null ? Q.get("title") : (S.title != null ? S.title : "出發");
   var date = Q.get("date") || (S.date != null ? S.date : "2027-02-13");
 
-  function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = "msg" + (err ? " err" : ""); }
-
-  /* ---------- 時鐘（使用該地區的時區） ---------- */
+  /* ---------- 時鐘與倒數 ---------- */
   var fT, fD;
   function buildFmt() {
     fT = new Intl.DateTimeFormat("zh-TW", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -153,9 +229,8 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); ou
     countdown(now);
   }
   function countdown(now) {
-    var box = $("cd");
-    if (!date) { box.hidden = true; return; }
-    var p = date.split("-"); if (p.length !== 3) { box.hidden = true; return; }
+    var box = $("cd"), p = (date || "").split("-");
+    if (p.length !== 3) { box.hidden = true; return; }
     var target = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
     var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     var d = Math.round((target - start) / 86400000);
@@ -164,51 +239,148 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); ou
     $("cdt").textContent = (title ? title + " " : "") + (d > 0 ? "倒數天" : d === 0 ? "就是今天" : "天前");
   }
 
-  /* ---------- 天氣 ---------- */
-  function load(p) {
-    place = p; S.lat = p.lat; S.lon = p.lon; S.name = p.name; S.sub = p.sub || ""; store.set(S);
-    var my = ++reqId; setMsg("載入中…");
-    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(p.lat) + "&longitude=" + encodeURIComponent(p.lon) +
+  /* ---------- 資料來源：Open-Meteo ---------- */
+  function fetchOm(s) {
+    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(s.lat) + "&longitude=" + encodeURIComponent(s.lon) +
       "&current=temperature_2m,apparent_temperature,weather_code" +
       "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7";
-    fetch(url).then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (d) {
-      if (my !== reqId) return;
-      tz = d.timezone || "UTC"; buildFmt(); lastSec = -1;
-      render(p, d); tick(); setMsg("");
-    }).catch(function () { if (my === reqId) setMsg("無法取得天氣資料，請檢查網路連線。", true); });
-  }
-  function render(p, d) {
-    $("pn").textContent = p.name; $("ps").textContent = p.sub || "";
-    var c = d.current || {}, w = wmo(c.weather_code);
-    $("ci").textContent = w[1]; $("ct").textContent = num(c.temperature_2m) + "°";
-    $("cdsc").textContent = w[0]; $("cfeel").textContent = "體感 " + num(c.apparent_temperature) + "°";
-    $("cur").hidden = false;
-    var dy = d.daily, s = $("strip"); s.textContent = "";
-    dy.time.forEach(function (iso, i) {
-      var q = iso.split("-"), dt = new Date(+q[0], +q[1] - 1, +q[2]), dw = wmo(dy.weather_code[i]);
-      var pop = dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null;
-      var el = document.createElement("div"); el.className = "sd" + (i === 0 ? " today" : ""); el.title = dw[0];
-      [["w", i === 0 ? "今" : WEEK[dt.getDay()]], ["dt", (dt.getMonth() + 1) + "/" + dt.getDate()], ["ic", dw[1]],
-       ["hi", num(dy.temperature_2m_max[i]) + "°"], ["lo", num(dy.temperature_2m_min[i]) + "°"],
-       ["p" + (pop ? "" : " z"), pop == null ? "--" : pop + "%"]].forEach(function (x) {
-        var n = document.createElement("div"); n.className = x[0]; n.textContent = x[1]; el.appendChild(n);
-      });
-      s.appendChild(el);
+    return fetch(url).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function (d) {
+      var c = d.current || {}, w = omWx(c.weather_code), dy = d.daily;
+      return {
+        tz: d.timezone || "UTC", src: "Open-Meteo",
+        cur: { icon: w[1], big: num(c.temperature_2m) + "°", l1: w[0], l2: "體感 " + num(c.apparent_temperature) + "°" },
+        days: dy.time.map(function (iso, i) {
+          var x = omWx(dy.weather_code[i]);
+          return { iso: iso, icon: x[1], text: x[0], hi: dy.temperature_2m_max[i], lo: dy.temperature_2m_min[i],
+                   pop: dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null };
+        }),
+        stamp: c.time ? "更新 " + c.time.replace("T", " ") : ""
+      };
     });
-    $("stamp").textContent = c.time ? "更新 " + c.time.replace("T", " ") : "";
-    document.title = p.name + " 旅途小面板";
   }
 
-  /* ---------- 設定 ---------- */
+  /* ---------- 資料來源：日本氣象廳 ---------- */
+  function fetchJma(s) {
+    var url = "https://www.jma.go.jp/bosai/forecast/data/forecast/" + s.key + ".json";
+    return fetch(url).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function (data) {
+      var wk = data[1] && data[1].timeSeries;
+      if (!wk || !wk[0] || !wk[1]) throw new Error("資料格式與預期不同");
+      var a0 = wk[0].areas[0], a1 = wk[1].areas[0];
+      var tmap = {};
+      wk[1].timeDefines.forEach(function (t, i) { tmap[t.slice(0, 10)] = i; });
+      var days = wk[0].timeDefines.map(function (t, i) {
+        var iso = t.slice(0, 10), ti = tmap[iso], w = jmaWx(a0.weatherCodes[i]);
+        return { iso: iso, icon: w[1], text: w[0], pop: toNum(a0.pops && a0.pops[i]),
+                 hi: ti != null ? toNum(a1.tempsMax && a1.tempsMax[ti]) : null, lo: ti != null ? toNum(a1.tempsMin && a1.tempsMin[ti]) : null };
+      });
+      var today = todayIn("Asia/Tokyo");
+      // 用短期預報（今明兩天）補上週間預報缺少的降雨機率與氣溫
+      var sp = {}, stt = {}, short = null;
+      try {
+        short = data[0].timeSeries;
+        if (short[1]) short[1].timeDefines.forEach(function (t, i) { var v = toNum(short[1].areas[0].pops[i]), k = t.slice(0, 10); if (v != null) sp[k] = Math.max(sp[k] == null ? v : sp[k], v); });
+        if (short[2]) short[2].timeDefines.forEach(function (t, i) { var v = toNum(short[2].areas[0].temps[i]), k = t.slice(0, 10); if (v != null) (stt[k] = stt[k] || []).push(v); });
+      } catch (e) {}
+      function fill(d) {
+        if (d.pop == null && sp[d.iso] != null) d.pop = sp[d.iso];
+        var tt = stt[d.iso];
+        if (tt && tt.length > 1) { if (d.hi == null) d.hi = Math.max.apply(null, tt); if (d.lo == null) d.lo = Math.min.apply(null, tt); }
+      }
+      if (!days.length || days[0].iso > today) {
+        try {
+          var w0 = jmaWx(short[0].areas[0].weatherCodes[0]);
+          days.unshift({ iso: today, icon: w0[1], text: w0[0], pop: null, hi: null, lo: null });
+        } catch (e) {}
+      }
+      days.forEach(fill);
+      days = days.slice(0, 7);
+      var t0 = days[0] || {};
+      return {
+        tz: "Asia/Tokyo", src: "日本氣象廳", days: days,
+        cur: { icon: t0.icon || "❔", big: t0.hi != null ? num(t0.hi) + "°" : (t0.lo != null ? num(t0.lo) + "°" : (t0.text || "--")), l1: (t0.text || "") + "・今日預報",
+               l2: "最低 " + num(t0.lo) + "°　降雨 " + (t0.pop != null ? t0.pop + "%" : "--") },
+        stamp: data[1].reportDatetime ? "發布 " + data[1].reportDatetime.slice(0, 16).replace("T", " ") : ""
+      };
+    });
+  }
+
+  /* ---------- 載入與備援 ---------- */
+  function load(s) {
+    sel = s; S.sel = { src: s.src, key: s.key, name: s.name, sub: s.sub, lat: s.lat, lon: s.lon }; store.set(S);
+    syncSettings();
+    var my = ++reqId; setMsg("載入中…");
+    var p;
+    if (s.src === "jma") p = fetchJma(s).then(tag("日本氣象廳"), fb(s, "日本氣象廳"));
+    else p = fetchOm(s);
+    p.then(function (res) { if (my === reqId) apply(s, res); })
+     .catch(function (e) { if (my === reqId) setMsg("無法取得天氣資料：" + (e && e.message ? e.message : "未知錯誤"), true); });
+  }
+  function tag() { return function (r) { return r; }; }
+  function fb(s, label) {
+    return function (err) {
+      var why = err && err.message ? err.message : "未知錯誤";
+      return fetchOm(s).then(function (r) {
+        r.src = "Open-Meteo（備援）";
+        r.note = label + "資料取得失敗（" + why + "），已改用 Open-Meteo。";
+        return r;
+      });
+    };
+  }
+  function apply(s, res) {
+    tz = res.tz; buildFmt(); lastSec = -1;
+    $("pn").textContent = s.name; $("ps").textContent = s.sub || "";
+    $("ci").textContent = res.cur.icon; $("ct").textContent = res.cur.big;
+    $("cdsc").textContent = res.cur.l1; $("cfeel").textContent = res.cur.l2;
+    $("cur").hidden = false;
+    var strip = $("strip"), today = todayIn(tz); strip.textContent = "";
+    res.days.forEach(function (d) {
+      var q = d.iso.split("-"), dt = new Date(+q[0], +q[1] - 1, +q[2]);
+      var el = document.createElement("div"); el.className = "sd" + (d.iso === today ? " today" : ""); el.title = d.text || "";
+      [["w", d.iso === today ? "今" : WEEK[dt.getDay()]], ["dt", (dt.getMonth() + 1) + "/" + dt.getDate()], ["ic", d.icon],
+       ["hi", num(d.hi) + "°"], ["lo", num(d.lo) + "°"], ["p" + (d.pop ? "" : " z"), d.pop == null ? "--" : d.pop + "%"]].forEach(function (x) {
+        var n = document.createElement("div"); n.className = x[0]; n.textContent = x[1]; el.appendChild(n);
+      });
+      strip.appendChild(el);
+    });
+    $("stamp").textContent = res.stamp || "";
+    $("srcl").textContent = "資料：" + res.src;
+    setMsg(res.note || "", !!res.note);
+    document.title = s.name + " 旅途小面板";
+    tick();
+  }
+
+  /* ---------- 設定介面 ---------- */
+  function fillArea(src, key) {
+    var a = $("area"); a.textContent = "";
+    if (src === "jma") JP.forEach(function (r) { var o = document.createElement("option"); o.value = r[0]; o.textContent = r[1] + "（" + r[2] + "）"; a.appendChild(o); });
+    if (src === "tw") TW.forEach(function (r) { var o = document.createElement("option"); o.value = r[0]; o.textContent = r[0]; a.appendChild(o); });
+    if (key) a.value = key;
+  }
+  function showFor(src) {
+    $("areaw").toggleAttribute("data-hide", src === "om");
+    $("sf").toggleAttribute("data-hide", src !== "om");
+    if (src !== "om") { $("res").hidden = true; }
+  }
+  function syncSettings() {
+    $("src").value = sel.src; fillArea(sel.src, sel.key); showFor(sel.src);
+  }
   $("gear").addEventListener("click", function () {
     var open = $("set").hidden; $("set").hidden = !open; $("gear").setAttribute("aria-expanded", open);
   });
+  $("src").addEventListener("change", function () {
+    var v = $("src").value; fillArea(v); showFor(v);
+    if (v === "jma") load(jpSel($("area").value));
+    else if (v === "tw") load(twSel($("area").value));
+  });
+  $("area").addEventListener("change", function () {
+    load($("src").value === "jma" ? jpSel($("area").value) : twSel($("area").value));
+  });
   function geo(text) {
     return fetch("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(text) + "&count=6&language=zh&format=json")
-      .then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (d) { return d.results || []; });
+      .then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }).then(function (d) { return d.results || []; });
   }
-  var fromGeo = function (r) { return { lat: r.latitude, lon: r.longitude, name: r.name, sub: [r.admin1, r.country].filter(Boolean).join("，") }; };
-  $("set").addEventListener("submit", function (e) {
+  var fromGeo = function (r) { return { src: "om", key: "", lat: r.latitude, lon: r.longitude, name: r.name, sub: [r.admin1, r.country].filter(Boolean).join("，") }; };
+  $("sf").addEventListener("submit", function (e) {
     e.preventDefault();
     var t = $("q").value.trim(); if (!t) return;
     $("res").hidden = true; $("res").textContent = ""; setMsg("搜尋中…");
@@ -224,20 +396,29 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); ou
         li.appendChild(b); $("res").appendChild(li);
       });
       $("res").hidden = false;
-    }).catch(function () { setMsg("搜尋失敗，請檢查網路連線。", true); });
+    }).catch(function (err) { setMsg("搜尋失敗：" + err.message, true); });
   });
+
   function saveCd() { title = $("ct-title").value; date = $("ct-date").value; S.title = title; S.date = date; store.set(S); lastSec = -1; tick(); }
   $("ct-title").value = title; $("ct-date").value = date;
   $("ct-title").addEventListener("input", saveCd); $("ct-date").addEventListener("input", saveCd);
 
   /* ---------- 啟動：網址參數 > 上次設定 > 預設 ---------- */
-  var lat = parseFloat(Q.get("lat")), lon = parseFloat(Q.get("lon"));
-  if (Q.get("city")) {
-    geo(Q.get("city")).then(function (l) { load(l.length ? fromGeo(l[0]) : (S.lat != null ? S : DEF)); })
-      .catch(function () { load(S.lat != null ? S : DEF); });
+  var lat = parseFloat(Q.get("lat")), lon = parseFloat(Q.get("lon")), start = null;
+  if (Q.get("jp")) start = jpSel(Q.get("jp"));
+  else if (Q.get("tw")) start = twSel(Q.get("tw"));
+  if (start) load(start);
+  else if (Q.get("city")) {
+    geo(Q.get("city")).then(function (l) { load(l.length ? fromGeo(l[0]) : DEF); }).catch(function () { load(DEF); });
   } else if (!isNaN(lat) && !isNaN(lon)) {
-    load({ lat: lat, lon: lon, name: Q.get("name") || "指定地點", sub: "" });
-  } else load(S.lat != null ? S : DEF);
+    load({ src: "om", key: "", lat: lat, lon: lon, name: Q.get("name") || "指定地點", sub: "" });
+  } else {
+    var sv = S.sel, rebuilt = null;
+    if (sv && sv.src === "jma") rebuilt = jpSel(sv.key);
+    else if (sv && sv.src === "tw") rebuilt = twSel(sv.key);
+    else if (sv && sv.src === "om" && sv.lat != null) rebuilt = sv;
+    load(rebuilt || DEF);
+  }
   setInterval(tick, 500);
 })();
 </script>
