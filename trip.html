@@ -212,7 +212,7 @@ input:focus-visible, button:focus-visible, select:focus-visible { outline: 2px s
 
   var sel = null, tz = null, reqId = 0, lastSec = -1;
   var title = Q.get("title") != null ? Q.get("title") : (S.title != null ? S.title : "出發");
-  var date = Q.get("date") || (S.date != null ? S.date : "2027-02-13");
+  var date = Q.has("date") ? Q.get("date") : (S.date != null ? S.date : "2027-02-13");
 
   /* ---------- 時鐘與倒數 ---------- */
   var fT, fD;
