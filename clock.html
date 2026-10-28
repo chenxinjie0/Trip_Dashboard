@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>當地時間時鐘</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one compact card sized for a Notion embed; place name on top, big clock, date and offset below, zone picker at the bottom. */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FFFFFF;
+  --fg: #111A2B;
+  --muted: #5B6578;
+  --line: #D5DBE4;
+  --accent: #2455D6;
+  --accent-fg: #FFFFFF;
+  --warn: #C2410C;
+  --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+    --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C; --warn: #FB923C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+  --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C; --warn: #FB923C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.card {
+  max-width: 560px; margin: 0 auto; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; padding: 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.place { text-align: center; font-size: 15px; font-weight: 500; color: var(--muted); min-height: 1.4em; overflow-wrap: anywhere; }
+.clock { text-align: center; display: flex; justify-content: center; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.clock .t {
+  font: 600 clamp(40px, 14vw, 76px)/1 var(--font-num);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.clock .p { font-size: 16px; font-weight: 500; color: var(--muted); }
+.date { text-align: center; font-size: 16px; }
+.meta { display: grid; gap: 8px; background: var(--bg); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
+.meta div { display: flex; justify-content: space-between; gap: 12px; min-width: 0; }
+.meta span:first-child { color: var(--muted); flex: none; }
+.meta span:last-child { text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.meta .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 160px; min-width: 0; }
+.field label { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+input[type="text"] {
+  width: 100%; font: 400 15px var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; min-width: 0;
+}
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.err { font-size: 12px; color: var(--warn); min-height: 1.2em; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 500 13px var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.fmt { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; align-self: end; }
+.fmt button {
+  font: 500 13px var(--font-ui); color: var(--muted); background: transparent; border: 0;
+  padding: 8px 10px; border-radius: 7px; cursor: pointer;
+}
+.fmt button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
+.hint { font-size: 12px; color: var(--muted); }
+</style>
+
+</head>
+<body>
+<main class="card">
+  <div class="place" id="place"></div>
+  <div class="clock"><span class="t" id="time">--:--:--</span><span class="p" id="period"></span></div>
+  <div class="date" id="date"></div>
+
+  <div class="meta">
+    <div><span>時區</span><span id="zname"></span></div>
+    <div><span>UTC 偏移</span><span class="num" id="zoff"></span></div>
+    <div><span>與你目前所在地</span><span id="zdiff"></span></div>
+  </div>
+
+  <div class="chips" id="chips" role="group" aria-label="常用時區">
+    <button class="chip" data-tz="Asia/Taipei">台北</button>
+    <button class="chip" data-tz="Asia/Tokyo">東京</button>
+    <button class="chip" data-tz="Asia/Seoul">首爾</button>
+    <button class="chip" data-tz="Europe/London">倫敦</button>
+    <button class="chip" data-tz="America/New_York">紐約</button>
+    <button class="chip" data-tz="America/Los_Angeles">洛杉磯</button>
+  </div>
+
+  <div class="row">
+    <div class="field">
+      <label for="tz">時區（輸入英文搜尋，例如 Tokyo）</label>
+      <input type="text" id="tz" list="tzlist" autocomplete="off" spellcheck="false" placeholder="Asia/Tokyo">
+      <datalist id="tzlist"></datalist>
+    </div>
+    <div class="field">
+      <label for="label">顯示名稱</label>
+      <input type="text" id="label" maxlength="30" placeholder="例如：仙台">
+    </div>
+    <div class="fmt" role="group" aria-label="時間格式">
+      <button id="f24" aria-pressed="true">24 小時</button>
+      <button id="f12" aria-pressed="false">12 小時</button>
+    </div>
+  </div>
+  <div class="err" id="err" role="status"></div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "tz-clock-v1";
+  var store = {
+    get: function () { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } },
+    set: function (o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
+  };
+  var saved = store.get();
+  var q = new URLSearchParams(location.search);
+
+  var fallback = ["Asia/Taipei", "Asia/Tokyo", "Asia/Seoul", "Asia/Shanghai", "Asia/Hong_Kong", "Asia/Singapore",
+    "Asia/Bangkok", "Asia/Dubai", "Asia/Kolkata", "Europe/London", "Europe/Paris", "Europe/Berlin",
+    "America/New_York", "America/Chicago", "America/Denver", "America/Los_Angeles", "Australia/Sydney",
+    "Pacific/Auckland", "Pacific/Honolulu", "UTC"];
+  var zones = (Intl.supportedValuesOf ? Intl.supportedValuesOf("timeZone") : fallback).slice();
+  if (zones.indexOf("UTC") < 0) zones.push("UTC");
+  $("tzlist").innerHTML = zones.map(function (z) { return '<option value="' + z + '"></option>'; }).join("");
+
+  function valid(z) {
+    try { new Intl.DateTimeFormat("zh-TW", { timeZone: z }); return true; } catch (e) { return false; }
+  }
+  function canon(input) {
+    var s = (input || "").trim().toLowerCase().replace(/\s+/g, "_");
+    if (!s) return null;
+    for (var i = 0; i < zones.length; i++) if (zones[i].toLowerCase() === s) return zones[i];
+    return null;
+  }
+
+  var tz = q.get("tz") || saved.tz || "Asia/Tokyo";
+  if (!valid(tz)) tz = "Asia/Tokyo";
+  var label = q.get("label") != null ? q.get("label") : (saved.label != null ? saved.label : "");
+  var h24 = q.get("h12") === "1" ? false : (q.get("h12") === "0" ? true : saved.h24 !== false);
+
+  var fmtTime, fmtDate, zoneName;
+  function build() {
+    fmtTime = new Intl.DateTimeFormat("zh-TW", {
+      timeZone: tz, hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: h24 ? "h23" : "h12"
+    });
+    fmtDate = new Intl.DateTimeFormat("zh-TW", {
+      timeZone: tz, year: "numeric", month: "long", day: "numeric", weekday: "long"
+    });
+    var parts = new Intl.DateTimeFormat("zh-TW", { timeZone: tz, timeZoneName: "long" }).formatToParts(new Date());
+    var n = parts.filter(function (p) { return p.type === "timeZoneName"; })[0];
+    zoneName = n ? n.value : tz;
+  }
+
+  // 某時區在 instant 當下的牆上時間，換成「當成 UTC」的毫秒數，用來算偏移與日期差
+  function wall(z, date) {
+    var p = {};
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: z, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric",
+      hour: "numeric", minute: "numeric", second: "numeric"
+    }).formatToParts(date).forEach(function (x) { p[x.type] = +x.value; });
+    return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  }
+  function offStr(min) {
+    var sign = min < 0 ? "-" : "+", a = Math.abs(min);
+    var h = Math.floor(a / 60), m = a % 60;
+    return "UTC" + sign + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  }
+  function hoursStr(min) {
+    var h = Math.abs(min) / 60;
+    return (Math.round(h * 100) / 100) + " 小時";
+  }
+
+  var lastSec = -1;
+  function tick() {
+    var now = new Date();
+    var sec = Math.floor(now.getTime() / 1000);
+    if (sec === lastSec) return;
+    lastSec = sec;
+
+    var parts = fmtTime.formatToParts(now), t = {};
+    parts.forEach(function (p) { t[p.type] = p.value; });
+    $("time").textContent = t.hour + ":" + t.minute + ":" + t.second;
+    $("period").textContent = h24 ? "" : (t.dayPeriod || "");
+    $("date").textContent = fmtDate.format(now);
+
+    var target = wall(tz, now);
+    var offMin = Math.round((target - Math.floor(now.getTime() / 1000) * 1000) / 60000);
+    $("zoff").textContent = offStr(offMin);
+
+    var here = wall(Intl.DateTimeFormat().resolvedOptions().timeZone, now);
+    var diffMin = Math.round((target - here) / 60000);
+    var txt;
+    if (diffMin === 0) txt = "時間相同";
+    else txt = (diffMin > 0 ? "快 " : "慢 ") + hoursStr(diffMin);
+    var dayDiff = Math.round((Date.UTC(new Date(target).getUTCFullYear(), new Date(target).getUTCMonth(), new Date(target).getUTCDate()) -
+      Date.UTC(new Date(here).getUTCFullYear(), new Date(here).getUTCMonth(), new Date(here).getUTCDate())) / 86400000);
+    if (dayDiff === 1) txt += "（已是隔天）";
+    else if (dayDiff === -1) txt += "（還是前一天）";
+    $("zdiff").textContent = txt;
+  }
+
+  function render() {
+    build(); lastSec = -1;
+    $("zname").textContent = zoneName + "（" + tz + "）";
+    $("place").textContent = label || tz.split("/").pop().replace(/_/g, " ");
+    $("tz").value = tz;
+    $("label").value = label;
+    $("f24").setAttribute("aria-pressed", h24);
+    $("f12").setAttribute("aria-pressed", !h24);
+    document.querySelectorAll(".chip").forEach(function (c) {
+      c.setAttribute("aria-pressed", c.dataset.tz === tz);
+    });
+    document.title = (label || tz) + " 當地時間";
+    store.set({ tz: tz, label: label, h24: h24 });
+    tick();
+  }
+
+  function setTz(z, keepLabel) {
+    tz = z; $("err").textContent = "";
+    if (!keepLabel) {
+      var c = document.querySelector('.chip[data-tz="' + z + '"]');
+      label = c ? c.textContent : "";
+    }
+    render();
+  }
+
+  document.querySelectorAll(".chip").forEach(function (c) {
+    c.addEventListener("click", function () { setTz(c.dataset.tz, false); });
+  });
+  $("tz").addEventListener("change", function () {
+    var z = canon($("tz").value);
+    if (z) setTz(z, false);
+    else { $("err").textContent = "找不到這個時區，請輸入英文城市名稱後從清單選擇。"; }
+  });
+  $("label").addEventListener("input", function () { label = $("label").value; render(); });
+  $("f24").addEventListener("click", function () { h24 = true; render(); });
+  $("f12").addEventListener("click", function () { h24 = false; render(); });
+
+  render();
+  setInterval(tick, 250);
+})();
+</script>
+
+</body>
+</html>

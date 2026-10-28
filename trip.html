@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>旅途小面板</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one compact card for a Notion embed. Row 1: place + time + countdown. Row 2: current weather. Row 3: seven-day strip. Settings fold away behind one button. */
+:root {
+  --bg: #EDF0F4; --surface: #FFFFFF; --fg: #111A2B; --muted: #5B6578; --line: #D5DBE4;
+  --accent: #2455D6; --accent-fg: #FFFFFF; --rain: #2563EB; --warn: #C2410C;
+  --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5; --line: #283244;
+    --accent: #7FA2FF; --accent-fg: #0E131C; --rain: #7FA2FF; --warn: #FB923C; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5; --line: #283244;
+  --accent: #7FA2FF; --accent-fg: #0E131C; --rain: #7FA2FF; --warn: #FB923C; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-block: 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.card { max-width: 520px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 14px; }
+button { font-family: var(--font-ui); }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.place { font-size: 16px; font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.place small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+.gear { font: 500 12px var(--font-ui); color: var(--muted); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer; flex: none; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.time { font: 600 clamp(40px, 13vw, 60px)/1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.date { font-size: 13px; color: var(--muted); margin-top: 6px; }
+.cd { text-align: right; background: var(--bg); border-radius: 10px; padding: 8px 12px; }
+.cd b { display: block; font: 600 28px/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.cd span { font-size: 12px; color: var(--muted); }
+.cur { display: flex; align-items: center; gap: 12px; background: var(--bg); border-radius: 10px; padding: 10px 14px; flex-wrap: wrap; }
+.cur .ico { font-size: 34px; line-height: 1; }
+.cur .t { font: 600 28px/1 var(--font-num); }
+.cur .d { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+.strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; text-align: center; }
+.sd { display: grid; gap: 5px; padding: 8px 0; border-radius: 10px; }
+.sd.today { background: var(--bg); }
+.sd .w { font-size: 12px; font-weight: 700; }
+.sd .dt { font: 400 11px var(--font-num); color: var(--muted); }
+.sd .ic { font-size: 22px; line-height: 1.1; }
+.sd .hi { font: 600 14px var(--font-num); }
+.sd .lo { font: 400 13px var(--font-num); color: var(--muted); }
+.sd .p { font: 500 11px var(--font-num); color: var(--rain); }
+.sd .p.z { color: var(--muted); }
+.foot { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.msg { font-size: 12px; color: var(--muted); }
+.msg.err { color: var(--warn); }
+.set { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
+.set[hidden] { display: none; }
+.set label { font-size: 12px; color: var(--muted); display: grid; gap: 4px; }
+.set input { width: 100%; min-width: 0; font: 400 14px var(--font-ui); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+.set .r { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.go { display: flex; gap: 8px; }
+.go input { flex: 1; }
+.btn { font: 700 13px var(--font-ui); border-radius: 8px; padding: 8px 14px; cursor: pointer; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-fg); }
+.res { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.res[hidden] { display: none; }
+.res button { width: 100%; text-align: left; border: 0; background: var(--bg); color: var(--fg); font: 400 13px var(--font-ui); padding: 8px 10px; border-radius: 7px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.res small { color: var(--muted); }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<main class="card" id="card">
+  <div class="top">
+    <div class="place" id="place"><span id="pn"></span><small id="ps"></small></div>
+    <button class="gear" id="gear" aria-expanded="false" aria-controls="set">設定</button>
+  </div>
+
+  <div class="hero">
+    <div>
+      <div class="time" id="time">--:--</div>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="cd" id="cd" hidden><b id="cdn">--</b><span id="cdt">天</span></div>
+  </div>
+
+  <div class="cur" id="cur" hidden>
+    <div class="ico" id="ci"></div>
+    <div class="t" id="ct"></div>
+    <div class="d"><span id="cdsc"></span><span id="cfeel"></span></div>
+  </div>
+
+  <div class="strip" id="strip"></div>
+  <div class="msg" id="msg" role="status"></div>
+
+  <form class="set" id="set" hidden autocomplete="off">
+    <div class="go">
+      <input type="text" id="q" aria-label="搜尋地區" placeholder="搜尋地區，例如 仙台、Tokyo">
+      <button class="btn" type="submit">搜尋</button>
+    </div>
+    <ul class="res" id="res" hidden></ul>
+    <div class="r">
+      <label>倒數標題<input type="text" id="ct-title" maxlength="20" placeholder="例如：出發"></label>
+      <label>倒數日期<input type="date" id="ct-date"></label>
+    </div>
+  </form>
+
+  <div class="foot"><span id="stamp"></span><span>天氣：Open-Meteo</span></div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "trip-panel-v1";
+  var store = {
+    get: function () { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } },
+    set: function (o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
+  };
+  var S = store.get(), Q = new URLSearchParams(location.search);
+  var DEF = { lat: 38.2682, lon: 140.8694, name: "仙台", sub: "宮城縣，日本" };
+  var WEEK = ["日", "一", "二", "三", "四", "五", "六"];
+  var WMO = {0:["晴朗","☀️"],1:["大致晴朗","🌤️"],2:["多雲時晴","⛅"],3:["陰天","☁️"],45:["霧","🌫️"],48:["霧凇","🌫️"],
+    51:["毛毛雨","🌦️"],53:["毛毛雨","🌦️"],55:["強毛毛雨","🌦️"],56:["凍毛毛雨","🌧️"],57:["凍毛毛雨","🌧️"],
+    61:["小雨","🌧️"],63:["中雨","🌧️"],65:["大雨","🌧️"],66:["凍雨","🌧️"],67:["凍雨","🌧️"],
+    71:["小雪","🌨️"],73:["中雪","🌨️"],75:["大雪","❄️"],77:["雪粒","🌨️"],80:["陣雨","🌦️"],81:["陣雨","🌧️"],82:["強陣雨","⛈️"],
+    85:["陣雪","🌨️"],86:["強陣雪","❄️"],95:["雷雨","⛈️"],96:["雷雨冰雹","⛈️"],99:["雷雨冰雹","⛈️"]};
+  var wmo = function (c) { return WMO[c] || ["未知", "❔"]; };
+  var num = function (v) { return v == null || isNaN(v) ? "--" : String(Math.round(v)); };
+
+  var place = null, tz = null, reqId = 0, lastSec = -1;
+  var title = Q.get("title") != null ? Q.get("title") : (S.title != null ? S.title : "出發");
+  var date = Q.get("date") || (S.date != null ? S.date : "2027-02-13");
+
+  function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = "msg" + (err ? " err" : ""); }
+
+  /* ---------- 時鐘（使用該地區的時區） ---------- */
+  var fT, fD;
+  function buildFmt() {
+    fT = new Intl.DateTimeFormat("zh-TW", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+    fD = new Intl.DateTimeFormat("zh-TW", { timeZone: tz, month: "long", day: "numeric", weekday: "long" });
+  }
+  function tick() {
+    if (!tz) return;
+    var now = new Date(), sec = Math.floor(now.getTime() / 1000);
+    if (sec === lastSec) return; lastSec = sec;
+    $("time").textContent = fT.format(now);
+    $("date").textContent = fD.format(now);
+    countdown(now);
+  }
+  function countdown(now) {
+    var box = $("cd");
+    if (!date) { box.hidden = true; return; }
+    var p = date.split("-"); if (p.length !== 3) { box.hidden = true; return; }
+    var target = new Date(+p[0], +p[1] - 1, +p[2]).getTime();
+    var start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    var d = Math.round((target - start) / 86400000);
+    box.hidden = false;
+    $("cdn").textContent = Math.abs(d);
+    $("cdt").textContent = (title ? title + " " : "") + (d > 0 ? "倒數天" : d === 0 ? "就是今天" : "天前");
+  }
+
+  /* ---------- 天氣 ---------- */
+  function load(p) {
+    place = p; S.lat = p.lat; S.lon = p.lon; S.name = p.name; S.sub = p.sub || ""; store.set(S);
+    var my = ++reqId; setMsg("載入中…");
+    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(p.lat) + "&longitude=" + encodeURIComponent(p.lon) +
+      "&current=temperature_2m,apparent_temperature,weather_code" +
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=7";
+    fetch(url).then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (d) {
+      if (my !== reqId) return;
+      tz = d.timezone || "UTC"; buildFmt(); lastSec = -1;
+      render(p, d); tick(); setMsg("");
+    }).catch(function () { if (my === reqId) setMsg("無法取得天氣資料，請檢查網路連線。", true); });
+  }
+  function render(p, d) {
+    $("pn").textContent = p.name; $("ps").textContent = p.sub || "";
+    var c = d.current || {}, w = wmo(c.weather_code);
+    $("ci").textContent = w[1]; $("ct").textContent = num(c.temperature_2m) + "°";
+    $("cdsc").textContent = w[0]; $("cfeel").textContent = "體感 " + num(c.apparent_temperature) + "°";
+    $("cur").hidden = false;
+    var dy = d.daily, s = $("strip"); s.textContent = "";
+    dy.time.forEach(function (iso, i) {
+      var q = iso.split("-"), dt = new Date(+q[0], +q[1] - 1, +q[2]), dw = wmo(dy.weather_code[i]);
+      var pop = dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null;
+      var el = document.createElement("div"); el.className = "sd" + (i === 0 ? " today" : ""); el.title = dw[0];
+      [["w", i === 0 ? "今" : WEEK[dt.getDay()]], ["dt", (dt.getMonth() + 1) + "/" + dt.getDate()], ["ic", dw[1]],
+       ["hi", num(dy.temperature_2m_max[i]) + "°"], ["lo", num(dy.temperature_2m_min[i]) + "°"],
+       ["p" + (pop ? "" : " z"), pop == null ? "--" : pop + "%"]].forEach(function (x) {
+        var n = document.createElement("div"); n.className = x[0]; n.textContent = x[1]; el.appendChild(n);
+      });
+      s.appendChild(el);
+    });
+    $("stamp").textContent = c.time ? "更新 " + c.time.replace("T", " ") : "";
+    document.title = p.name + " 旅途小面板";
+  }
+
+  /* ---------- 設定 ---------- */
+  $("gear").addEventListener("click", function () {
+    var open = $("set").hidden; $("set").hidden = !open; $("gear").setAttribute("aria-expanded", open);
+  });
+  function geo(text) {
+    return fetch("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(text) + "&count=6&language=zh&format=json")
+      .then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (d) { return d.results || []; });
+  }
+  var fromGeo = function (r) { return { lat: r.latitude, lon: r.longitude, name: r.name, sub: [r.admin1, r.country].filter(Boolean).join("，") }; };
+  $("set").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var t = $("q").value.trim(); if (!t) return;
+    $("res").hidden = true; $("res").textContent = ""; setMsg("搜尋中…");
+    geo(t).then(function (list) {
+      if (!list.length) { setMsg("找不到「" + t + "」，試試英文名稱。", true); return; }
+      setMsg("請選擇地點：");
+      list.forEach(function (r) {
+        var li = document.createElement("li"), b = document.createElement("button"); b.type = "button";
+        var a = document.createElement("span"); a.textContent = r.name;
+        var s = document.createElement("small"); s.textContent = [r.admin1, r.country].filter(Boolean).join("，");
+        b.appendChild(a); b.appendChild(s);
+        b.addEventListener("click", function () { $("res").hidden = true; $("q").value = ""; load(fromGeo(r)); });
+        li.appendChild(b); $("res").appendChild(li);
+      });
+      $("res").hidden = false;
+    }).catch(function () { setMsg("搜尋失敗，請檢查網路連線。", true); });
+  });
+  function saveCd() { title = $("ct-title").value; date = $("ct-date").value; S.title = title; S.date = date; store.set(S); lastSec = -1; tick(); }
+  $("ct-title").value = title; $("ct-date").value = date;
+  $("ct-title").addEventListener("input", saveCd); $("ct-date").addEventListener("input", saveCd);
+
+  /* ---------- 啟動：網址參數 > 上次設定 > 預設 ---------- */
+  var lat = parseFloat(Q.get("lat")), lon = parseFloat(Q.get("lon"));
+  if (Q.get("city")) {
+    geo(Q.get("city")).then(function (l) { load(l.length ? fromGeo(l[0]) : (S.lat != null ? S : DEF)); })
+      .catch(function () { load(S.lat != null ? S : DEF); });
+  } else if (!isNaN(lat) && !isNaN(lon)) {
+    load({ lat: lat, lon: lon, name: Q.get("name") || "指定地點", sub: "" });
+  } else load(S.lat != null ? S : DEF);
+  setInterval(tick, 500);
+})();
+</script>
+</body>
+</html>

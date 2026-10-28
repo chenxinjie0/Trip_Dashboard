@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>倒數計時器</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one compact card sized for a Notion embed; mode tabs on top, big digits in the middle, inputs below. */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FFFFFF;
+  --fg: #111A2B;
+  --muted: #5B6578;
+  --line: #D5DBE4;
+  --accent: #2455D6;
+  --accent-fg: #FFFFFF;
+  --done: #C2410C;
+  --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+    --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C; --done: #FB923C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+  --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C; --done: #FB923C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.card {
+  max-width: 560px; margin: 0 auto; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; padding: 18px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+.tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); padding: 4px; border-radius: 10px; }
+.tab {
+  font: 500 14px var(--font-ui); color: var(--muted); background: transparent; border: 0;
+  padding: 9px 8px; border-radius: 7px; cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 0 0 1px var(--line); }
+.tab:focus-visible, button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.title { font-size: 15px; font-weight: 500; color: var(--muted); text-align: center; min-height: 1.4em; overflow-wrap: anywhere; }
+.status { font-size: 12px; letter-spacing: .08em; text-align: center; color: var(--muted); }
+.status.done { color: var(--done); font-weight: 700; }
+
+.digits { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.digits.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg { background: var(--bg); border-radius: 10px; padding: 14px 4px 10px; text-align: center; min-width: 0; }
+.seg b {
+  display: block; font: 600 clamp(28px, 9vw, 52px)/1 var(--font-num);
+  font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+.seg span { display: block; margin-top: 8px; font-size: 12px; color: var(--muted); letter-spacing: .1em; }
+.done-state .seg b { color: var(--done); }
+
+.ring-wrap { display: grid; place-items: center; }
+.ring { width: min(100%, 230px); aspect-ratio: 1; position: relative; }
+.ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring circle { fill: none; stroke-width: 8; }
+.ring .track { stroke: var(--bg); }
+.ring .bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .25s linear; }
+.ring .time {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font: 600 clamp(34px, 11vw, 48px)/1 var(--font-num); font-variant-numeric: tabular-nums;
+}
+
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 6px; flex: 1 1 140px; min-width: 0; }
+.field label { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+input[type="text"], input[type="datetime-local"], input[type="number"] {
+  width: 100%; font: 400 15px var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; min-width: 0;
+}
+input[type="number"] { font-family: var(--font-num); }
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 500 13px var(--font-num); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.controls { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+.btn {
+  font: 700 15px var(--font-ui); border-radius: 9px; padding: 12px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { .ring .bar { transition: none; } }
+</style>
+
+</head>
+<body>
+<main class="card" id="app">
+  <div class="tabs" role="tablist" aria-label="模式">
+    <button class="tab" role="tab" id="tab-date" aria-selected="true" data-mode="date">倒數日期</button>
+    <button class="tab" role="tab" id="tab-timer" aria-selected="false" data-mode="timer">計時器</button>
+  </div>
+
+  <!-- 倒數日期 -->
+  <section id="panel-date" class="stack" style="display:flex;flex-direction:column;gap:18px">
+    <div>
+      <div class="title" id="d-title"></div>
+      <div class="status" id="d-status"></div>
+    </div>
+    <div class="digits" id="d-digits">
+      <div class="seg"><b id="d-d">00</b><span>天</span></div>
+      <div class="seg"><b id="d-h">00</b><span>時</span></div>
+      <div class="seg"><b id="d-m">00</b><span>分</span></div>
+      <div class="seg"><b id="d-s">00</b><span>秒</span></div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="d-label">標題</label>
+        <input type="text" id="d-label" maxlength="40" placeholder="例如：出發日">
+      </div>
+      <div class="field">
+        <label for="d-target">目標日期時間</label>
+        <input type="datetime-local" id="d-target">
+      </div>
+    </div>
+  </section>
+
+  <!-- 計時器 -->
+  <section id="panel-timer" hidden style="flex-direction:column;gap:18px">
+    <div class="status" id="t-status">準備開始</div>
+    <div class="ring-wrap">
+      <div class="ring">
+        <svg viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="track" cx="50" cy="50" r="44"></circle>
+          <circle class="bar" id="t-bar" cx="50" cy="50" r="44"></circle>
+        </svg>
+        <div class="time" id="t-time">25:00</div>
+      </div>
+    </div>
+    <div class="presets" id="t-presets">
+      <button class="chip" data-min="5">5 分</button>
+      <button class="chip" data-min="10">10 分</button>
+      <button class="chip" data-min="25">25 分</button>
+      <button class="chip" data-min="45">45 分</button>
+      <button class="chip" data-min="60">60 分</button>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="t-min">分鐘</label>
+        <input type="number" id="t-min" min="0" max="999" value="25" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label for="t-sec">秒</label>
+        <input type="number" id="t-sec" min="0" max="59" value="0" inputmode="numeric">
+      </div>
+    </div>
+    <div class="controls">
+      <button class="btn primary" id="t-go">開始</button>
+      <button class="btn" id="t-reset">重設</button>
+    </div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "countdown-settings-v1";
+  var store = {
+    get: function () { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } },
+    set: function (o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
+  };
+  var saved = store.get();
+  var pad = function (n) { return String(n).padStart(2, "0"); };
+
+  /* ---------- 模式切換 ---------- */
+  var mode = saved.mode === "timer" ? "timer" : "date";
+  function setMode(m) {
+    mode = m;
+    $("tab-date").setAttribute("aria-selected", m === "date");
+    $("tab-timer").setAttribute("aria-selected", m === "timer");
+    $("panel-date").hidden = m !== "date";
+    $("panel-timer").hidden = m !== "timer";
+    $("panel-timer").style.display = m === "timer" ? "flex" : "none";
+    $("panel-date").style.display = m === "date" ? "flex" : "none";
+    persist();
+  }
+  document.querySelectorAll(".tab").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.dataset.mode); });
+  });
+
+  /* ---------- 倒數日期 ---------- */
+  // 預設為範例：下一個元旦，可自行修改
+  var defTarget = (new Date().getFullYear() + 1) + "-01-01T00:00";
+  $("d-target").value = saved.target || defTarget;
+  $("d-label").value = saved.label != null ? saved.label : "新年倒數";
+
+  function tickDate() {
+    var t = new Date($("d-target").value).getTime();
+    var title = $("d-label").value.trim();
+    $("d-title").textContent = title;
+    var st = $("d-status");
+    if (isNaN(t)) {
+      st.textContent = "請選擇目標日期時間"; st.className = "status";
+      ["d", "h", "m", "s"].forEach(function (k) { $("d-" + k).textContent = "--"; });
+      return;
+    }
+    var diff = t - Date.now();
+    var past = diff <= 0;
+    var s = Math.floor(Math.abs(diff) / 1000);
+    $("d-d").textContent = pad(Math.floor(s / 86400));
+    $("d-h").textContent = pad(Math.floor(s % 86400 / 3600));
+    $("d-m").textContent = pad(Math.floor(s % 3600 / 60));
+    $("d-s").textContent = pad(s % 60);
+    st.textContent = past ? "已到達，已過" : "距離目標還有";
+    st.className = "status" + (past ? " done" : "");
+    $("d-digits").classList.toggle("done-state", past);
+  }
+  ["input", "change"].forEach(function (ev) {
+    $("d-target").addEventListener(ev, function () { persist(); tickDate(); });
+    $("d-label").addEventListener(ev, function () { persist(); tickDate(); });
+  });
+
+  /* ---------- 計時器 ---------- */
+  var C = 2 * Math.PI * 44;
+  var bar = $("t-bar");
+  bar.style.strokeDasharray = C;
+  var total = 0, remain = 0, endAt = 0, state = "idle", raf = null; // idle | running | paused | done
+
+  function readInputs() {
+    var m = Math.max(0, Math.min(999, parseInt($("t-min").value, 10) || 0));
+    var s = Math.max(0, Math.min(59, parseInt($("t-sec").value, 10) || 0));
+    return m * 60 + s;
+  }
+  function fmt(sec) {
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return pad(m) + ":" + pad(s);
+  }
+  function draw() {
+    var sec = Math.ceil(remain / 1000);
+    $("t-time").textContent = fmt(sec);
+    var frac = total > 0 ? remain / (total * 1000) : 1;
+    bar.style.strokeDashoffset = C * (1 - Math.max(0, Math.min(1, frac)));
+    document.title = state === "running" ? fmt(sec) + " · 倒數計時器" : "倒數計時器";
+  }
+  function setStatus(txt, done) {
+    $("t-status").textContent = txt;
+    $("t-status").className = "status" + (done ? " done" : "");
+  }
+  function beep() {
+    try {
+      var A = window.AudioContext || window.webkitAudioContext;
+      var ctx = new A(), t = ctx.currentTime;
+      [0, 0.28, 0.56].forEach(function (d) {
+        var o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+        g.gain.setValueAtTime(0.0001, t + d);
+        g.gain.exponentialRampToValueAtTime(0.25, t + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + d + 0.22);
+        o.start(t + d); o.stop(t + d + 0.25);
+      });
+    } catch (e) {}
+  }
+  function loop() {
+    remain = Math.max(0, endAt - Date.now());
+    draw();
+    if (remain <= 0) {
+      state = "done"; $("t-go").textContent = "再來一次";
+      setStatus("時間到", true); beep(); return;
+    }
+    raf = requestAnimationFrame(loop);
+  }
+  function reset() {
+    cancelAnimationFrame(raf);
+    total = readInputs(); remain = total * 1000; state = "idle";
+    $("t-go").textContent = "開始"; setStatus("準備開始", false); draw();
+  }
+  $("t-go").addEventListener("click", function () {
+    if (state === "running") {
+      cancelAnimationFrame(raf); state = "paused";
+      $("t-go").textContent = "繼續"; setStatus("已暫停", false); draw();
+      return;
+    }
+    if (state === "done") reset();
+    if (state === "idle") { total = readInputs(); remain = total * 1000; }
+    if (remain <= 0) { setStatus("請先設定時間", false); return; }
+    endAt = Date.now() + remain; state = "running";
+    $("t-go").textContent = "暫停"; setStatus("計時中", false);
+    cancelAnimationFrame(raf); raf = requestAnimationFrame(loop);
+  });
+  $("t-reset").addEventListener("click", reset);
+  $("t-presets").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-min]"); if (!b) return;
+    $("t-min").value = b.dataset.min; $("t-sec").value = 0;
+    persist(); reset();
+  });
+  ["t-min", "t-sec"].forEach(function (id) {
+    $(id).addEventListener("input", function () {
+      persist();
+      if (state === "idle" || state === "done") reset();
+    });
+  });
+  if (saved.min != null) $("t-min").value = saved.min;
+  if (saved.sec != null) $("t-sec").value = saved.sec;
+
+  function persist() {
+    store.set({
+      mode: mode, target: $("d-target").value, label: $("d-label").value,
+      min: $("t-min").value, sec: $("t-sec").value
+    });
+  }
+
+  /* ---------- 啟動 ---------- */
+  setMode(mode);
+  reset();
+  tickDate();
+  setInterval(tickDate, 1000);
+})();
+</script>
+
+</body>
+</html>

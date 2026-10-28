@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>一週天氣預報</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one card. Top: place name + search. Middle: current conditions. Bottom: 7 day rows, each with a low-high bar drawn on one shared temperature scale. */
+:root {
+  --bg: #EDF0F4;
+  --surface: #FFFFFF;
+  --fg: #111A2B;
+  --muted: #5B6578;
+  --line: #D5DBE4;
+  --accent: #2455D6;
+  --accent-fg: #FFFFFF;
+  --cold: #3B82F6;
+  --hot: #EA580C;
+  --rain: #2563EB;
+  --warn: #C2410C;
+  --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+    --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C;
+    --cold: #60A5FA; --hot: #FB923C; --rain: #7FA2FF; --warn: #FB923C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E131C; --surface: #161D2A; --fg: #E8EDF5; --muted: #93A0B5;
+  --line: #283244; --accent: #7FA2FF; --accent-fg: #0E131C;
+  --cold: #60A5FA; --hot: #FB923C; --rain: #7FA2FF; --warn: #FB923C;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui);
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.card {
+  max-width: 720px; margin: 0 auto; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 14px; padding: 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.search { display: flex; gap: 8px; flex-wrap: wrap; position: relative; }
+.search input {
+  flex: 1 1 200px; min-width: 0; font: 400 15px var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+}
+button { font-family: var(--font-ui); }
+.btn {
+  font: 700 14px var(--font-ui); border-radius: 8px; padding: 10px 14px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+}
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.results { list-style: none; margin: 0; padding: 4px; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; display: grid; gap: 2px; }
+.results[hidden] { display: none; }
+.results button {
+  width: 100%; text-align: left; border: 0; background: transparent; color: var(--fg);
+  font: 400 14px var(--font-ui); padding: 9px 10px; border-radius: 7px; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 10px;
+}
+.results button:hover, .results button:focus-visible { background: var(--bg); }
+.results small { color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  font: 500 13px var(--font-ui); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.msg { font-size: 13px; min-height: 1.3em; color: var(--muted); }
+.msg.err { color: var(--warn); }
+
+.now { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.now .ico { font-size: 54px; line-height: 1; }
+.now .temp { font: 600 clamp(44px, 12vw, 64px)/1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
+.now .info { display: grid; gap: 4px; min-width: 0; }
+.now .place { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.now .desc { font-size: 14px; color: var(--muted); }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fact { background: var(--bg); border-radius: 10px; padding: 10px 8px; text-align: center; min-width: 0; }
+.fact b { display: block; font: 600 17px var(--font-num); font-variant-numeric: tabular-nums; }
+.fact span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); }
+
+.days { display: grid; gap: 2px; }
+.day {
+  display: grid; grid-template-columns: 62px 34px minmax(0, 1fr) 44px; gap: 10px; align-items: center;
+  padding: 10px 4px; border-top: 1px solid var(--line);
+}
+.day:first-child { border-top: 0; }
+.day .dn b { display: block; font-size: 15px; }
+.day .dn span { font-size: 12px; color: var(--muted); font-family: var(--font-num); }
+.day .ico { font-size: 26px; text-align: center; line-height: 1; }
+.range { display: grid; grid-template-columns: 38px minmax(0, 1fr) 38px; gap: 8px; align-items: center; font: 500 14px var(--font-num); font-variant-numeric: tabular-nums; }
+.range .lo { text-align: right; color: var(--muted); }
+.range .hi { text-align: left; }
+.track { position: relative; height: 8px; border-radius: 999px; background: var(--bg); }
+.fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; background: linear-gradient(90deg, var(--cold), var(--hot)); }
+.pop { font: 500 13px var(--font-num); color: var(--rain); text-align: right; font-variant-numeric: tabular-nums; }
+.pop.zero { color: var(--muted); }
+.day .mid { display: grid; gap: 4px; min-width: 0; }
+.day .sub { font-size: 12px; color: var(--muted); padding-left: 46px; }
+.legend { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.loading { opacity: .5; }
+@media (max-width: 420px) {
+  .day { grid-template-columns: 52px 30px minmax(0, 1fr) 40px; gap: 6px; }
+  .range { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 6px; font-size: 13px; }
+  .day .sub { padding-left: 38px; }
+}
+</style>
+</head>
+<body>
+<main class="card" id="card">
+  <form class="search" id="form" autocomplete="off">
+    <input type="text" id="q" aria-label="搜尋地區" placeholder="輸入地區，例如 仙台、Taipei、Tokyo">
+    <button class="btn primary" type="submit">搜尋</button>
+    <button class="btn" type="button" id="geo">目前位置</button>
+    <ul class="results" id="results" hidden></ul>
+  </form>
+  <div class="chips" id="chips">
+    <button class="chip" data-lat="38.2682" data-lon="140.8694" data-name="仙台">仙台</button>
+    <button class="chip" data-lat="25.0330" data-lon="121.5654" data-name="台北">台北</button>
+    <button class="chip" data-lat="35.6762" data-lon="139.6503" data-name="東京">東京</button>
+    <button class="chip" data-lat="37.9161" data-lon="139.0364" data-name="新潟">新潟</button>
+    <button class="chip" data-lat="37.4923" data-lon="139.9298" data-name="會津若松">會津若松</button>
+  </div>
+  <div class="msg" id="msg" role="status"></div>
+
+  <section id="view" hidden>
+    <div class="now">
+      <div class="ico" id="n-ico"></div>
+      <div class="temp" id="n-temp"></div>
+      <div class="info">
+        <div class="place" id="n-place"></div>
+        <div class="desc" id="n-desc"></div>
+      </div>
+    </div>
+    <div class="facts" style="margin-top:16px">
+      <div class="fact"><b id="n-feel">--</b><span>體感</span></div>
+      <div class="fact"><b id="n-hum">--</b><span>濕度</span></div>
+      <div class="fact"><b id="n-wind">--</b><span>風速</span></div>
+    </div>
+    <div class="days" id="days" style="margin-top:12px"></div>
+    <div class="legend" style="margin-top:8px">
+      <span>長條為當日最低到最高氣溫，七天共用同一個刻度</span>
+      <span>右側為降雨機率</span>
+    </div>
+  </section>
+  <div class="legend"><span id="stamp"></span><span>資料來源：Open-Meteo</span></div>
+</main>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY = "weather-week-v1";
+  var store = {
+    get: function () { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } },
+    set: function (o) { try { localStorage.setItem(KEY, JSON.stringify(o)); } catch (e) {} }
+  };
+  var saved = store.get();
+  var q = new URLSearchParams(location.search);
+  var DEFAULT = { lat: 38.2682, lon: 140.8694, name: "仙台" };
+  var WEEK = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+
+  // WMO 天氣代碼 → [說明, 圖示]
+  var WMO = {
+    0: ["晴朗", "☀️"], 1: ["大致晴朗", "🌤️"], 2: ["多雲時晴", "⛅"], 3: ["陰天", "☁️"],
+    45: ["霧", "🌫️"], 48: ["霧凇", "🌫️"],
+    51: ["輕微毛毛雨", "🌦️"], 53: ["毛毛雨", "🌦️"], 55: ["強毛毛雨", "🌦️"],
+    56: ["凍毛毛雨", "🌧️"], 57: ["強凍毛毛雨", "🌧️"],
+    61: ["小雨", "🌧️"], 63: ["中雨", "🌧️"], 65: ["大雨", "🌧️"],
+    66: ["凍雨", "🌧️"], 67: ["強凍雨", "🌧️"],
+    71: ["小雪", "🌨️"], 73: ["中雪", "🌨️"], 75: ["大雪", "❄️"], 77: ["雪粒", "🌨️"],
+    80: ["陣雨", "🌦️"], 81: ["較強陣雨", "🌧️"], 82: ["強陣雨", "⛈️"],
+    85: ["陣雪", "🌨️"], 86: ["強陣雪", "❄️"],
+    95: ["雷雨", "⛈️"], 96: ["雷雨夾小冰雹", "⛈️"], 99: ["雷雨夾大冰雹", "⛈️"]
+  };
+  function wmo(c) { return WMO[c] || ["未知", "❔"]; }
+
+  var place = null, reqId = 0;
+
+  function setMsg(t, err) { $("msg").textContent = t || ""; $("msg").className = "msg" + (err ? " err" : ""); }
+  function num(v, d) { return v == null || isNaN(v) ? "--" : (d ? v.toFixed(d) : String(Math.round(v))); }
+
+  function load(p) {
+    place = p;
+    store.set({ lat: p.lat, lon: p.lon, name: p.name });
+    $("q").value = "";
+    hideResults();
+    var my = ++reqId;
+    $("card").classList.add("loading");
+    setMsg("載入 " + p.name + " 的天氣中…");
+    var url = "https://api.open-meteo.com/v1/forecast?latitude=" + encodeURIComponent(p.lat) +
+      "&longitude=" + encodeURIComponent(p.lon) +
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m" +
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum" +
+      "&timezone=auto&forecast_days=7";
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (my !== reqId) return;
+      render(p, d);
+      setMsg("");
+    }).catch(function () {
+      if (my !== reqId) return;
+      setMsg("無法取得天氣資料，請檢查網路連線後再試一次。", true);
+    }).then(function () {
+      if (my === reqId) $("card").classList.remove("loading");
+    });
+  }
+
+  function render(p, d) {
+    var c = d.current || {}, dy = d.daily || {};
+    var w = wmo(c.weather_code);
+    $("n-ico").textContent = w[1];
+    $("n-temp").textContent = num(c.temperature_2m) + "°";
+    $("n-place").textContent = p.name;
+    $("n-desc").textContent = w[0] + (p.sub ? "・" + p.sub : "");
+    $("n-feel").textContent = num(c.apparent_temperature) + "°";
+    $("n-hum").textContent = num(c.relative_humidity_2m) + "%";
+    $("n-wind").textContent = num(c.wind_speed_10m) + " km/h";
+
+    var days = dy.time || [];
+    var mins = dy.temperature_2m_min || [], maxs = dy.temperature_2m_max || [];
+    var gmin = Math.min.apply(null, mins), gmax = Math.max.apply(null, maxs);
+    var span = Math.max(gmax - gmin, 1);
+    var box = $("days");
+    box.textContent = "";
+    days.forEach(function (iso, i) {
+      var parts = iso.split("-");
+      var dt = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+      var dw = wmo(dy.weather_code[i]);
+      var left = ((mins[i] - gmin) / span) * 100;
+      var width = Math.max(((maxs[i] - mins[i]) / span) * 100, 4);
+      var pop = dy.precipitation_probability_max ? dy.precipitation_probability_max[i] : null;
+      var sum = dy.precipitation_sum ? dy.precipitation_sum[i] : null;
+
+      var row = document.createElement("div");
+      row.className = "day";
+
+      var dn = document.createElement("div"); dn.className = "dn";
+      var b = document.createElement("b"); b.textContent = i === 0 ? "今天" : WEEK[dt.getDay()];
+      var s = document.createElement("span"); s.textContent = (dt.getMonth() + 1) + "/" + dt.getDate();
+      dn.appendChild(b); dn.appendChild(s);
+
+      var ico = document.createElement("div"); ico.className = "ico"; ico.textContent = dw[1]; ico.title = dw[0];
+
+      var range = document.createElement("div"); range.className = "range";
+      var lo = document.createElement("span"); lo.className = "lo"; lo.textContent = num(mins[i]) + "°";
+      var track = document.createElement("div"); track.className = "track";
+      var fill = document.createElement("div"); fill.className = "fill";
+      fill.style.left = left + "%"; fill.style.width = Math.min(width, 100 - left) + "%";
+      track.appendChild(fill);
+      var hi = document.createElement("span"); hi.className = "hi"; hi.textContent = num(maxs[i]) + "°";
+      range.appendChild(lo); range.appendChild(track); range.appendChild(hi);
+
+      var pp = document.createElement("div");
+      pp.className = "pop" + (!pop ? " zero" : "");
+      pp.textContent = pop == null ? "--" : pop + "%";
+
+      var sub = document.createElement("div"); sub.className = "sub";
+      sub.textContent = dw[0] + (sum ? "・降水 " + sum.toFixed(1) + " mm" : "");
+
+      var mid = document.createElement("div"); mid.className = "mid";
+      mid.appendChild(range); mid.appendChild(sub);
+      row.appendChild(dn); row.appendChild(ico); row.appendChild(mid); row.appendChild(pp);
+      box.appendChild(row);
+    });
+    $("view").hidden = false;
+    var t = c.time ? c.time.replace("T", " ") : "";
+    $("stamp").textContent = t ? "更新時間（當地）" + t : "";
+    document.title = p.name + " 一週天氣預報";
+  }
+
+  /* ---------- 搜尋地區 ---------- */
+  function hideResults() { $("results").hidden = true; $("results").textContent = ""; }
+  function search(text) {
+    var my = ++reqId;
+    setMsg("搜尋中…");
+    return fetch("https://geocoding-api.open-meteo.com/v1/search?name=" + encodeURIComponent(text) +
+      "&count=8&language=zh&format=json").then(function (r) {
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      return r.json();
+    }).then(function (d) {
+      if (my !== reqId) return null;
+      return d.results || [];
+    });
+  }
+  function fromGeo(r) {
+    var sub = [r.admin1, r.country].filter(Boolean).join("，");
+    return { lat: r.latitude, lon: r.longitude, name: r.name, sub: sub };
+  }
+  $("form").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var text = $("q").value.trim();
+    if (!text) { setMsg("請先輸入地區名稱。", true); return; }
+    hideResults();
+    search(text).then(function (list) {
+      if (list === null) return;
+      if (!list.length) { setMsg("找不到「" + text + "」，試試英文名稱或附近較大的城市。", true); return; }
+      setMsg("請選擇地點：");
+      var ul = $("results");
+      list.forEach(function (r) {
+        var li = document.createElement("li");
+        var btn = document.createElement("button"); btn.type = "button";
+        var a = document.createElement("span"); a.textContent = r.name;
+        var s = document.createElement("small"); s.textContent = [r.admin1, r.country].filter(Boolean).join("，");
+        btn.appendChild(a); btn.appendChild(s);
+        btn.addEventListener("click", function () { load(fromGeo(r)); });
+        li.appendChild(btn); ul.appendChild(li);
+      });
+      ul.hidden = false;
+    }).catch(function () { setMsg("搜尋失敗，請檢查網路連線後再試一次。", true); });
+  });
+
+  document.querySelectorAll(".chip").forEach(function (c) {
+    c.addEventListener("click", function () {
+      load({ lat: +c.dataset.lat, lon: +c.dataset.lon, name: c.dataset.name });
+    });
+  });
+
+  $("geo").addEventListener("click", function () {
+    if (!navigator.geolocation) { setMsg("這個瀏覽器不支援定位。", true); return; }
+    setMsg("取得目前位置中…");
+    try {
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        load({ lat: pos.coords.latitude, lon: pos.coords.longitude, name: "目前位置" });
+      }, function () { setMsg("無法取得位置，請允許瀏覽器定位，或改用搜尋。", true); }, { timeout: 10000 });
+    } catch (e) { setMsg("無法取得位置，請改用搜尋。", true); }
+  });
+
+  /* ---------- 啟動：網址參數 > 上次設定 > 預設 ---------- */
+  var lat = parseFloat(q.get("lat")), lon = parseFloat(q.get("lon"));
+  if (q.get("city")) {
+    search(q.get("city")).then(function (list) {
+      if (list && list.length) load(fromGeo(list[0]));
+      else { setMsg("找不到「" + q.get("city") + "」。", true); load(saved.lat != null ? saved : DEFAULT); }
+    }).catch(function () { load(saved.lat != null ? saved : DEFAULT); });
+  } else if (!isNaN(lat) && !isNaN(lon)) {
+    load({ lat: lat, lon: lon, name: q.get("name") || "指定地點" });
+  } else {
+    load(saved.lat != null ? saved : DEFAULT);
+  }
+})();
+</script>
+</body>
+</html>
